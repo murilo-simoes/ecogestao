@@ -50,7 +50,7 @@ $env:ECOGESTAO_DEMO = '1'
 
 ## Avaliação pelo professor na instância publicada
 
-A versão informada pelo grupo está em https://ecogestao.murilosimoes.com.br/. Para dar acesso ao professor, entre com o gestor principal, abra **Contas** e selecione **Nova conta**. Informe o nome e o e-mail institucional do professor, escolha **Gestor** para permitir também os testes de administração e defina uma senha inicial própria com pelo menos 12 caracteres. Comunique a senha diretamente ao professor por um canal privado; não a inclua no Word, no repositório ou em capturas de tela. Ele pode usar **Trocar minha senha** após entrar.
+A versão informada pelo grupo está em https://ecogestao.murilosimoes.com.br/. Para dar acesso ao professor, entre com o gestor principal, abra **Contas** e selecione **Nova conta**. Informe o nome e o e-mail institucional do professor, escolha **Gestor** para permitir também os testes de administração e defina uma senha inicial própria com pelo menos 12 caracteres. Para uma conta individual, comunique a senha diretamente ao professor por um canal privado e não a inclua no repositório ou em capturas de tela. Ele pode usar **Trocar minha senha** após entrar. Se o grupo optar por divulgar no Word uma conta compartilhada de demonstração, essa conta não deve ser usada para dados reais e sua senha deve ser alterada ou a conta desativada após a avaliação.
 
 A existência da conta e o login na instância publicada devem ser conferidos no servidor depois do cadastro. O endereço foi verificado por uma consulta GET sobre HTTPS em 22/09/2026; os testes funcionais descritos neste projeto foram executados localmente.
 
