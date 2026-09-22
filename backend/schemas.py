@@ -1,9 +1,16 @@
 """Contratos de entrada e restrições independentes da interface."""
 from datetime import date
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+import re
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Metric = Literal['agua', 'energia', 'residuos']
+
+
+def private_password(value):
+    if value == 'EcoDemo2026!':
+        raise ValueError('Escolha uma senha própria, diferente da senha pública de demonstração.')
+    return value
 
 
 class Input(BaseModel):
@@ -13,6 +20,52 @@ class Input(BaseModel):
 class Login(Input):
     email: str = Field(min_length=3, max_length=150)
     password: str = Field(min_length=1, max_length=200)
+
+
+class Account(Input):
+    name: str = Field(min_length=2, max_length=100)
+    email: str = Field(min_length=5, max_length=150)
+    role: Literal['gestor', 'operador', 'consulta']
+
+    @field_validator('email')
+    @classmethod
+    def email_address(cls, value):
+        value = value.lower()
+        if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', value):
+            raise ValueError('Informe um e-mail válido.')
+        return value
+
+
+class AccountCreate(Account):
+    password: str = Field(min_length=12, max_length=200)
+
+    @field_validator('password')
+    @classmethod
+    def password_private(cls, value):
+        return private_password(value)
+
+
+class AccountUpdate(Account):
+    active: bool
+
+
+class PasswordChange(Input):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=12, max_length=200)
+
+    @field_validator('new_password')
+    @classmethod
+    def password_private(cls, value):
+        return private_password(value)
+
+
+class PasswordReset(Input):
+    new_password: str = Field(min_length=12, max_length=200)
+
+    @field_validator('new_password')
+    @classmethod
+    def password_private(cls, value):
+        return private_password(value)
 
 
 class Sector(Input):

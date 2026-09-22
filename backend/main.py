@@ -14,23 +14,32 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .database import ROOT, connect, initialize
-from .schemas import Action, Goal, Login, Partner, Record, Sector
-from .security import token_hash, verify_password
+from .database import ROOT, audit, connect, initialize
+from .schemas import AccountCreate, AccountUpdate, Action, Goal, Login, Partner, PasswordChange, PasswordReset, Record, Sector
+from .security import hash_password, token_hash, verify_password
 from .services import goal_results, list_records, period_filter, remove, save
 
 
-def create_app(db_path=None, demo=True):
+def create_app(db_path=None, demo=None):
+    demo = os.environ.get('ECOGESTAO_DEMO') == '1' if demo is None else demo
     path = str(db_path or os.environ.get('ECOGESTAO_DB', ROOT / 'data/ecogestao.db'))
 
     @asynccontextmanager
     async def lifespan(app):
         initialize(path, demo)
+        with connect(path) as db:
+            app.state.demo_data = bool(db.execute("SELECT 1 FROM app_settings WHERE key='demo_data' AND value='1'").fetchone())
+        if not demo:
+            with connect(path) as db:
+                if db.execute("SELECT 1 FROM users WHERE active=1 AND email IN ('gestor@demo.local','operador@demo.local','consulta@demo.local')").fetchone():
+                    raise RuntimeError('Contas públicas de demonstração ainda estão ativas. Execute manage_users.py para criar o gestor e desativá-las.')
+                if not db.execute("SELECT 1 FROM users WHERE role='gestor' AND active=1").fetchone():
+                    raise RuntimeError('Nenhum gestor ativo. Execute manage_users.py antes de iniciar o servidor.')
         yield
 
     app = FastAPI(title='EcoGestão API', version='1.0.0', lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url='/api/openapi.json',
-                  description='Serviços HTTP de gestão ambiental. Dados de demonstração fictícios.')
+                  description='Serviços HTTP de gestão ambiental.')
     app.state.db_path = path
     failures = {}
 
@@ -62,7 +71,7 @@ def create_app(db_path=None, demo=True):
         token = request.cookies.get('ecogestao_session', '')
         with connect(path) as db:
             row = db.execute('SELECT u.id,u.name,u.email,u.role,s.csrf FROM sessions s JOIN users u ON u.id=s.user_id '
-                             'WHERE s.token_hash=? AND s.expires_at>?', (token_hash(token), time.time())).fetchone()
+                             'WHERE s.token_hash=? AND s.expires_at>? AND u.active=1', (token_hash(token), time.time())).fetchone()
         if not row:
             raise HTTPException(401, 'Sessão inválida ou expirada. Entre novamente.')
         user = dict(row)
@@ -88,7 +97,7 @@ def create_app(db_path=None, demo=True):
             raise HTTPException(429, 'Muitas tentativas. Aguarde um minuto.')
         with connect(path) as db:
             user = db.execute('SELECT * FROM users WHERE email=?', (payload.email.lower(),)).fetchone()
-            if not user or not verify_password(payload.password, user['password_hash']):
+            if not user or not user['active'] or not verify_password(payload.password, user['password_hash']):
                 failures[key] = recent+[time.time()]
                 raise HTTPException(401, 'E-mail ou senha incorretos.')
             failures.pop(key, None)
@@ -100,11 +109,11 @@ def create_app(db_path=None, demo=True):
             db.execute('INSERT INTO sessions VALUES(?,?,?,?)', (token_hash(token), user['id'], csrf, time.time()+28800))
         response.set_cookie('ecogestao_session', token, max_age=28800, httponly=True,
                             samesite='strict', secure=os.environ.get('ECOGESTAO_HTTPS') == '1')
-        return {'id': user['id'], 'name': user['name'], 'role': user['role'], 'csrf': csrf}
+        return {'id': user['id'], 'name': user['name'], 'role': user['role'], 'csrf': csrf, 'demo': app.state.demo_data}
 
     @app.get('/api/auth/me', tags=['Sessão'])
     def me(user=Depends(current_user)):
-        return user
+        return {**user, 'demo': app.state.demo_data}
 
     @app.post('/api/auth/logout', status_code=204, tags=['Sessão'])
     def logout(request: Request, response: Response, user=Depends(current_user)):
@@ -112,10 +121,73 @@ def create_app(db_path=None, demo=True):
             db.execute('DELETE FROM sessions WHERE token_hash=?', (token_hash(request.cookies['ecogestao_session']),))
         response.delete_cookie('ecogestao_session')
 
+    @app.post('/api/auth/password', status_code=204, tags=['Sessão'])
+    def change_password(payload: PasswordChange, request: Request, user=Depends(current_user)):
+        with connect(path) as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT password_hash FROM users WHERE id=?', (user['id'],)).fetchone()
+            if not verify_password(payload.current_password, row['password_hash']):
+                raise HTTPException(403, 'Senha atual incorreta.')
+            if verify_password(payload.new_password, row['password_hash']):
+                raise HTTPException(422, 'A nova senha deve ser diferente da atual.')
+            db.execute('UPDATE users SET password_hash=? WHERE id=?', (hash_password(payload.new_password), user['id']))
+            db.execute('DELETE FROM sessions WHERE user_id=? AND token_hash<>?',
+                       (user['id'], token_hash(request.cookies['ecogestao_session'])))
+            audit(db, user['id'], 'alterar_senha', 'users', user['id'])
+
     @app.get('/api/users', tags=['Cadastros'])
     def users(user=Depends(current_user)):
         with connect(path) as db:
-            return [dict(r) for r in db.execute('SELECT id,name,role FROM users ORDER BY name')]
+            return [dict(r) for r in db.execute('SELECT id,name,role FROM users WHERE active=1 ORDER BY name')]
+
+    @app.get('/api/admin/users', tags=['Contas'])
+    def managed_users(user=Depends(manager)):
+        with connect(path) as db:
+            return [dict(r) for r in db.execute('SELECT id,name,email,role,active FROM users ORDER BY name')]
+
+    @app.post('/api/admin/users', status_code=201, tags=['Contas'])
+    def create_user(payload: AccountCreate, user=Depends(manager)):
+        with connect(path) as db:
+            cursor = db.execute('INSERT INTO users(name,email,password_hash,role,active) VALUES(?,?,?,?,1)',
+                                (payload.name, payload.email, hash_password(payload.password), payload.role))
+            result = dict(db.execute('SELECT id,name,email,role,active FROM users WHERE id=?',
+                                     (cursor.lastrowid,)).fetchone())
+            audit(db, user['id'], 'criar', 'users', result['id'], after=result)
+            return result
+
+    @app.put('/api/admin/users/{identifier}', tags=['Contas'])
+    def update_user(identifier: int, payload: AccountUpdate, user=Depends(manager)):
+        with connect(path) as db:
+            db.execute('BEGIN IMMEDIATE')
+            before_row = db.execute('SELECT id,name,email,role,active FROM users WHERE id=?', (identifier,)).fetchone()
+            if not before_row:
+                raise HTTPException(404, 'Conta não encontrada.')
+            before = dict(before_row)
+            if identifier == user['id'] and (payload.role != 'gestor' or not payload.active):
+                raise HTTPException(409, 'O gestor não pode remover o próprio acesso.')
+            if before['role'] == 'gestor' and before['active'] and (payload.role != 'gestor' or not payload.active):
+                remaining = db.execute("SELECT COUNT(*) FROM users WHERE role='gestor' AND active=1 AND id<>?", (identifier,)).fetchone()[0]
+                if not remaining:
+                    raise HTTPException(409, 'É necessário manter ao menos um gestor ativo.')
+            db.execute('UPDATE users SET name=?,email=?,role=?,active=? WHERE id=?',
+                       (payload.name, payload.email, payload.role, int(payload.active), identifier))
+            if before['role'] != payload.role or not payload.active:
+                db.execute('DELETE FROM sessions WHERE user_id=?', (identifier,))
+            result = dict(db.execute('SELECT id,name,email,role,active FROM users WHERE id=?', (identifier,)).fetchone())
+            audit(db, user['id'], 'alterar', 'users', identifier, before, result)
+            return result
+
+    @app.post('/api/admin/users/{identifier}/password', status_code=204, tags=['Contas'])
+    def reset_user_password(identifier: int, payload: PasswordReset, user=Depends(manager)):
+        if identifier == user['id']:
+            raise HTTPException(409, 'Use a troca de senha da própria conta.')
+        with connect(path) as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM users WHERE id=?', (identifier,)).fetchone():
+                raise HTTPException(404, 'Conta não encontrada.')
+            db.execute('UPDATE users SET password_hash=? WHERE id=?', (hash_password(payload.new_password), identifier))
+            db.execute('DELETE FROM sessions WHERE user_id=?', (identifier,))
+            audit(db, user['id'], 'redefinir_senha', 'users', identifier)
 
     @app.get('/api/sectors', tags=['Cadastros'])
     def sectors(user=Depends(current_user)):

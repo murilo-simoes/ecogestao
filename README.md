@@ -1,6 +1,6 @@
 # EcoGestão
 
-Aplicação acadêmica de gestão ambiental organizacional. Implementa serviços HTTP próprios e uma interface web que os consome por `fetch`. Registra água, energia, resíduos, metas, ações corretivas, setores e parceiros. Todos os dados iniciais são fictícios.
+Aplicação acadêmica de gestão ambiental organizacional. Implementa serviços HTTP próprios e uma interface web que os consome por `fetch`. Registra água, energia, resíduos, metas, ações corretivas, setores e parceiros. Em um banco novo, o modo normal inicia sem contas nem dados fictícios; há um modo de demonstração opcional.
 
 ## Requisitos
 
@@ -13,24 +13,40 @@ Abra o PowerShell na pasta `software` e execute:
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe manage_users.py --name "Gestor principal" --email gestor@seu-dominio.com
 .\.venv\Scripts\python.exe run.py
 ```
 
-Acesse [EcoGestão local](http://127.0.0.1:8000). O banco `data/ecogestao.db` é criado automaticamente no primeiro início. Encerre com `Ctrl+C`. Os dados persistem entre execuções.
+Acesse [EcoGestão local](http://127.0.0.1:8000). O comando `manage_users.py` cria o banco, solicita a senha sem exibi-la e cadastra o primeiro gestor. Use uma senha própria com pelo menos 12 caracteres. O banco padrão é `data/ecogestao.db`; `ECOGESTAO_DB` seleciona outro arquivo e deve apontar para o mesmo banco em todos os comandos. Encerre o servidor com `Ctrl+C`. Os dados persistem entre execuções.
 
 Em Linux/macOS, use `python3.12 -m venv .venv` e `.venv/bin/python` nos comandos equivalentes. A suíte de interface fornecida usa o canal Chrome, que precisa estar instalado.
 
 Não é necessário ativar o ambiente virtual, alterar a política de execução do PowerShell ou instalar um servidor de banco.
 
-## Contas de demonstração
+## Contas e migração de um banco existente
 
-| E-mail | Senha | Permissões |
-|---|---|---|
-| gestor@demo.local | EcoDemo2026! | Todas as funções, exclusões e histórico |
-| operador@demo.local | EcoDemo2026! | Consulta, criação e edição de registros e ações |
-| consulta@demo.local | EcoDemo2026! | Leitura e relatórios |
+O primeiro gestor é criado pelo comando acima. Depois de entrar, abra **Contas** para criar gestores, operadores e usuários de consulta, editar seus dados, desativá-los e redefinir suas senhas. Cada pessoa pode usar **Trocar minha senha**. A desativação impede novos acessos e encerra sessões, mas preserva registros e ações vinculados à conta. A aplicação impede remover o próprio acesso de gestor e deixar o banco sem gestor ativo. Não há cadastro público nem envio de senha por e-mail; o gestor deve comunicar a senha inicial por um canal apropriado.
 
-Contas são pré-configuradas pelo inicializador. Não há tela de gestão de usuários nem recuperação de senha nesta versão. O software foi preparado para demonstração local, não para publicação direta na internet com essas credenciais.
+Se o servidor já usa um banco com contas de demonstração, **faça backup do arquivo SQLite e pare o aplicativo**. Após atualizar o código, execute `manage_users.py` usando exatamente o mesmo caminho de banco do servidor. O comando cria seu gestor e desativa as três contas públicas e suas sessões numa transação, sem apagar os dados ambientais. Só então reinicie o aplicativo. Se as contas públicas ainda estiverem ativas, o servidor recusa iniciar no modo normal. Os registros fictícios antigos continuam identificados como demonstração; para operar exclusivamente com dados reais, use um banco novo e cadastre seus próprios setores e registros.
+
+Em Linux, por exemplo, com o ambiente virtual já instalado e o mesmo `ECOGESTAO_DB` usado pelo serviço:
+
+```bash
+.venv/bin/python manage_users.py --name "Gestor principal" --email gestor@seu-dominio.com
+```
+
+Não passe a senha como argumento: o comando a solicita sem mostrá-la. Defina `ECOGESTAO_HTTPS=1` no serviço HTTPS para que o cookie de sessão receba a marca Secure. A aplicação deve ser publicada atrás de HTTPS; faça backup do banco antes de atualizações e reveja permissões do arquivo no servidor.
+
+### Demonstração acadêmica local
+
+Para gerar um banco separado com dados fictícios, use `init_db.py --demo` e inicie o servidor com `ECOGESTAO_DEMO=1`. Somente esse modo aceita as contas `gestor@demo.local`, `operador@demo.local` e `consulta@demo.local`, todas com a senha pública `EcoDemo2026!`. Nunca use `ECOGESTAO_DEMO=1` no servidor público.
+
+```powershell
+$env:ECOGESTAO_DB = Join-Path $PWD 'data\demonstracao.db'
+.\.venv\Scripts\python.exe init_db.py --database $env:ECOGESTAO_DB --demo
+$env:ECOGESTAO_DEMO = '1'
+.\.venv\Scripts\python.exe run.py
+```
 
 ## Interface e datas
 
@@ -38,7 +54,7 @@ A interface usa a fonte Inter, incluída localmente em `frontend/fonts` sob a li
 
 ## Uso e regras
 
-1. Entre como gestor. O painel abre com setembro de 2026, mês dos dados de exemplo.
+1. Entre com a conta do gestor. O painel abre no mês corrente; no modo de demonstração, ajuste o filtro para setembro de 2026 para ver os dados iniciais.
 2. Cadastre setores e parceiros. É possível editar e inativar cadastros sem apagar seus vínculos históricos. Para corrigir um registro vinculado a cadastro inativo, reative o cadastro primeiro.
 3. Em Registros ambientais, informe a quantidade efetivamente consumida, e não a leitura acumulada do medidor. Água utiliza m³; energia, kWh; resíduos, kg. Quantidades devem ser maiores que zero. Ausência de medição não é registrada como zero.
 4. Para resíduos, informe tipo, destinação e parceiro responsável. Datas futuras são recusadas. Um registro representa o consumo atribuído à data informada ou uma coleta de resíduos; o programa não divide automaticamente faturas entre meses.
@@ -68,9 +84,12 @@ database/
   seed.sql         dados fictícios de demonstração
 tests/
   test_api.py      testes de aceitação e integração
-  browser_flow.py  fluxo real no navegador
+  browser_flow.py  fluxo ambiental no navegador
+  browser_accounts.py  gestão de contas no navegador
+  test_accounts.py  testes de migração e autenticação
 run.py             inicialização local
 init_db.py         inicialização explícita de banco
+manage_users.py    criação segura do primeiro gestor
 ```
 
 O servidor entrega os arquivos estáticos e os serviços, mas a interface acessa os dados exclusivamente pela API. A arquitetura é orientada a recursos HTTP, inspirada em REST. Como utiliza sessões no servidor, não se reivindica adesão integral à restrição de ausência de estado de sessão do REST estrito.
@@ -79,9 +98,9 @@ O servidor entrega os arquivos estáticos e os serviços, mas a interface acessa
 
 Contrato gerado em [OpenAPI](http://127.0.0.1:8000/api/openapi.json). A tela Serviços e API também consulta esse contrato real, sem depender de CDN externa.
 
-As principais rotas são `/api/auth/login`, `/api/auth/me`, `/api/auth/logout`, `/api/sectors`, `/api/partners`, `/api/users`, `/api/records`, `/api/goals`, `/api/actions`, `/api/dashboard`, `/api/reports/records.csv` e `/api/audit`. Criação usa POST; atualização usa PUT com identificador. DELETE está disponível para registros, metas e ações, somente ao gestor. Setores e parceiros são inativados por PUT.
+As principais rotas são `/api/auth/login`, `/api/auth/me`, `/api/auth/logout`, `/api/auth/password`, `/api/admin/users`, `/api/sectors`, `/api/partners`, `/api/users`, `/api/records`, `/api/goals`, `/api/actions`, `/api/dashboard`, `/api/reports/records.csv` e `/api/audit`. Criação usa POST; atualização usa PUT com identificador. DELETE está disponível para registros, metas e ações, somente ao gestor. Setores e parceiros são inativados por PUT.
 
-Exemplo no PowerShell, com o programa em execução:
+Exemplo no PowerShell com o modo de demonstração local em execução:
 
 ```powershell
 $login = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/auth/login' -Method Post -ContentType 'application/json' -Body '{"email":"gestor@demo.local","password":"EcoDemo2026!"}' -SessionVariable sessaoEco
@@ -92,14 +111,14 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/auth/logout' -Method Post -Web
 
 Sessões duram oito horas, usam cookie HttpOnly e SameSite Strict. Escritas exigem o cabeçalho X-CSRF-Token obtido no login. Senhas usam PBKDF2-HMAC-SHA256 com sal individual e 600.000 iterações; tokens de sessão são guardados como hash. Consultas SQL recebem parâmetros. Mudanças e auditoria compartilham transação. O limitador de tentativas de login é local ao processo; não substitui proteção de produção.
 
-`ECOGESTAO_DB` permite escolher outro banco. `ECOGESTAO_HTTPS=1` marca cookies como Secure, mas não configura TLS: qualquer uso em rede pública exigiria implantação com HTTPS, troca de contas, gestão de usuários, operação de backup e revisão de segurança próprias.
+`ECOGESTAO_DB` permite escolher outro banco. `ECOGESTAO_HTTPS=1` marca cookies como Secure, mas não configura TLS. A proteção pública também depende de HTTPS, administração do servidor, backups e revisão de segurança próprias.
 
 ## Banco e dados de exemplo
 
 `database/schema.sql` cria tabelas e chaves estrangeiras. `database/seed.sql` fornece os dados ambientais e pressupõe os três usuários criados pelo inicializador com senhas derivadas.
 
 ```powershell
-.\.venv\Scripts\python.exe init_db.py --database data\outra_demonstracao.db
+.\.venv\Scripts\python.exe init_db.py --database data\outra_demonstracao.db --demo
 ```
 
 O inicializador não sobrescreve dados existentes. Para outra demonstração, escolha um arquivo novo com `ECOGESTAO_DB`. Faça cópias do banco com o servidor parado. Não apague dados reais para reproduzir testes.
@@ -115,6 +134,7 @@ Cada teste de API usa um banco temporário próprio. Para testar a interface, in
 
 ```powershell
 $env:ECOGESTAO_DB = Join-Path $PWD 'test-results\browser_novo.db'
+$env:ECOGESTAO_DEMO = '1'
 .\.venv\Scripts\python.exe run.py
 ```
 
@@ -124,7 +144,7 @@ Em outro terminal, na mesma pasta:
 .\.venv\Scripts\python.exe tests\browser_flow.py
 ```
 
-O fluxo cria itens com E2E no nome. Deve ser executado uma vez por banco novo, pois nomes repetidos são recusados. As evidências vão para `test-results`; capturas para a pasta irmã `documentacao/imagens`. Os testes não substituem uma auditoria de segurança ou ensaio de carga em produção.
+O fluxo ambiental cria itens com E2E no nome. Deve ser executado uma vez por banco novo, pois nomes repetidos são recusados. As evidências vão para `test-results`; capturas para a pasta irmã `documentacao/imagens`. `tests/browser_accounts.py` verifica o modo de contas próprias em um banco separado com primeiro gestor criado por `manage_users.py`. Para repetir esse fluxo, use o nome `Gestor E2E`, e-mail `gestor-e2e@exemplo.com` e senha `Senha inicial E2E 2026` apenas no banco temporário; configure `ECOGESTAO_TEST_URL` para a porta da instância correspondente. Os testes não substituem uma auditoria de segurança ou ensaio de carga em produção.
 
 ## Apresentação acadêmica
 

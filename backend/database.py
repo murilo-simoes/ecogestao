@@ -29,6 +29,9 @@ def initialize(path, demo=False):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with connect(path) as db:
         db.executescript((ROOT / 'database/schema.sql').read_text(encoding='utf-8'))
+        # Bancos anteriores à gestão de contas preservam usuários e seus vínculos.
+        if not any(row['name'] == 'active' for row in db.execute('PRAGMA table_info(users)')):
+            db.execute('ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))')
         if demo and not db.execute('SELECT 1 FROM users').fetchone():
             for name, email, role in [
                 ('Gestor Demonstração', 'gestor@demo.local', 'gestor'),
@@ -38,6 +41,9 @@ def initialize(path, demo=False):
                 db.execute('INSERT INTO users(name,email,password_hash,role) VALUES(?,?,?,?)',
                            (name, email, hash_password('EcoDemo2026!'), role))
             db.executescript((ROOT / 'database/seed.sql').read_text(encoding='utf-8'))
+        # A etiqueta acompanha os registros fictícios mesmo após trocar as contas.
+        if db.execute("SELECT 1 FROM records r JOIN users u ON u.id=r.created_by WHERE u.email IN ('gestor@demo.local','operador@demo.local','consulta@demo.local') LIMIT 1").fetchone():
+            db.execute("INSERT OR IGNORE INTO app_settings(key,value) VALUES('demo_data','1')")
 
 
 def audit(db, user_id, operation, entity, entity_id, before=None, after=None):

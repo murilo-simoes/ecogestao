@@ -1,8 +1,10 @@
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
- password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('gestor','operador','consulta'))
+ password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('gestor','operador','consulta')),
+ active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
 );
+CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (
  token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
  csrf TEXT NOT NULL, expires_at REAL NOT NULL

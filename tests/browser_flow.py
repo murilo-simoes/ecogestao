@@ -19,7 +19,7 @@ with sync_playwright() as p:
     def select(name,value): page.locator('#field-'+name).select_option(value)
     def shot(name): page.screenshot(path=str(SHOTS/name),full_page=True)
     page.goto(os.environ.get('ECOGESTAO_TEST_URL','http://127.0.0.1:8000'));shot('01_acesso.png')
-    page.locator('#password').fill('EcoDemo2026!');click('Entrar')
+    page.locator('#email').fill('gestor@demo.local');page.locator('#password').fill('EcoDemo2026!');click('Entrar')
     expect(page.locator('#content')).to_contain_text('4.280')
     expect(page.locator('#filter-start')).to_have_value('01/09/2026')
     expect(page.locator('#filter-end')).to_have_value('30/09/2026')

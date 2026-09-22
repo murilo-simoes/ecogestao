@@ -1,7 +1,7 @@
 'use strict';
 const $ = (q) => document.querySelector(q);
 const state = {user:null, page:'dashboard', sectors:[], partners:[], users:[], rows:[], editing:null};
-const names = {dashboard:'Visão geral', records:'Registros ambientais', goals:'Metas', actions:'Ações corretivas', sectors:'Setores', partners:'Parceiros', reports:'Relatórios', audit:'Histórico de alterações', api:'Serviços e API'};
+const names = {dashboard:'Visão geral', records:'Registros ambientais', goals:'Metas', actions:'Ações corretivas', sectors:'Setores', partners:'Parceiros', reports:'Relatórios', audit:'Histórico de alterações', users:'Contas', api:'Serviços e API'};
 const metrics = {agua:'Água', energia:'Energia', residuos:'Resíduos'};
 const units = {agua:'m³', energia:'kWh', residuos:'kg'};
 const statuses = {aberta:'Aberta', em_andamento:'Em andamento', concluida:'Concluída'};
@@ -43,10 +43,12 @@ async function loadLookups() {
 async function enter(user) {
   state.user=user;$('#login-screen').hidden=true;$('#app').hidden=false;
   $('#user-name').textContent=user.name;$('#user-role').textContent={gestor:'Gestor ambiental',operador:'Operador',consulta:'Somente consulta'}[user.role];
+  $('.demo-badge').hidden=!user.demo;$('#org-label').textContent=user.demo?'Organização demonstrativa':'Gestão ambiental';
   document.querySelectorAll('.manager-only').forEach(el=>el.hidden=!isManager());
   await loadLookups();await navigate('dashboard');
 }
 $('#login-form').addEventListener('submit',async(e)=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{await enter(await api('/auth/login',{method:'POST',body:JSON.stringify({email:$('#email').value,password:$('#password').value})}));}catch(err){$('#login-error').textContent=err.message;}finally{button.disabled=false;}});
+$('#change-password').addEventListener('click',()=>openPasswordDialog());
 $('#logout').addEventListener('click',async()=>{try{await api('/auth/logout',{method:'POST'});state.user=null;showLogin();}catch(err){notify(err.message,true);}});
 document.querySelectorAll('nav button').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.page)));
 $('#apply-filter').addEventListener('click',()=>render().then(()=>{$('#notice').hidden=true;}).catch(err=>notify(err.message,true)));
@@ -55,10 +57,11 @@ function empty() {return '<div class="empty">Nenhum registro encontrado.<br>Revi
 function table(headers,rows) {return rows.length?`<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:empty();}
 function rowButtons(id,allow=true) {return allow?`<div class="row-actions"><button data-edit="${id}">Editar</button>${isManager()&&['records','goals','actions'].includes(state.page)?`<button data-delete="${id}" class="danger">Excluir</button>`:''}</div>`:'';}
 function goalBadge(g) {if(g.actual==null)return '<span class="badge neutral">Sem registros</span>';return `<span class="badge ${g.actual>g.limit_value?'warning':''}">${g.actual>g.limit_value?'Limite excedido':'Dentro do limite'}</span>`;}
-function toolbar(text,editable=true) {return `<div class="toolbar"><p>${text}</p>${editable?'<button id="new-item">Novo registro</button>':''}</div>`;}
+function toolbar(text,editable=true,label='Novo registro') {return `<div class="toolbar"><p>${text}</p>${editable?`<button id="new-item">${esc(label)}</button>`:''}</div>`;}
 function bindRows() {
  $('#new-item')?.addEventListener('click',()=>edit());
  document.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click',()=>edit(state.rows.find(r=>r.id===Number(b.dataset.edit)))));
+ document.querySelectorAll('[data-reset]').forEach(b=>b.addEventListener('click',()=>openPasswordDialog(Number(b.dataset.reset))));
  document.querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',async()=>{
    if(!confirm('Excluir este registro? A operação ficará no histórico.'))return;
    try{await api(`/${state.page}/${b.dataset.delete}`,{method:'DELETE'});await render();notify('Registro excluído.');}catch(err){notify(err.message,true);}
@@ -89,6 +92,9 @@ async function render() {
  } else if(page==='audit') {
    state.rows=await api('/audit');
    content.innerHTML='<p class="note">Histórico de criação, alteração e exclusão. Horários exibidos no fuso do navegador. Dados iniciais de demonstração não são alterações de usuários.</p>'+`<div class="panel">${table(['Data e hora','Usuário','Operação','Entidade','Detalhes'],state.rows.map(r=>[esc(new Date(r.timestamp).toLocaleString('pt-BR')),esc(r.user_name),esc(r.operation),esc(r.entity)+' #'+r.entity_id,`<details><summary>Ver alteração</summary><p>Antes: ${esc(r.before_json||'Não existia')}</p><p>Depois: ${esc(r.after_json||'Excluído')}</p></details>`]))}</div>`;
+ } else if(page==='users') {
+   state.rows=await api('/admin/users');
+   content.innerHTML=toolbar('Somente o gestor cria contas. Desative uma conta para preservar seus registros e impedir novos acessos.',true,'Nova conta')+`<div class="panel">${table(['Nome','E-mail','Perfil','Situação','Ações'],state.rows.map(u=>[esc(u.name),esc(u.email),esc({gestor:'Gestor',operador:'Operador',consulta:'Consulta'}[u.role]),u.active?'Ativo':'Inativo',`<div class="row-actions"><button data-edit="${u.id}">Editar</button>${u.id===state.user.id?'':`<button data-reset="${u.id}">Redefinir senha</button>`}</div>`]))}</div>`;
  } else if(page==='api') {
    const spec=await api('/openapi.json');
    content.innerHTML=`<article class="panel"><h2>Contrato dos serviços</h2><p class="note">Interface web e API comunicam-se por HTTP e JSON. Escritas autenticadas exigem cookie de sessão e cabeçalho X-CSRF-Token. O contrato abaixo vem do servidor em execução.</p><p><a href="/api/openapi.json" target="_blank" rel="noopener">Abrir contrato OpenAPI em JSON</a></p>${Object.entries(spec.paths).flatMap(([path,methods])=>Object.entries(methods).map(([method,op])=>`<div class="api-row"><strong>${esc(method.toUpperCase())}</strong><div><code>${esc(path)}</code><br><small>${esc(op.summary)}</small></div></div>`)).join('')}</article>`;
@@ -105,7 +111,7 @@ function field(name,label,type='text',value='',options=null,wide=false) {
  return `<label class="${wide?'wide':''}">${esc(label)}${control}</label>`;
 }
 function edit(row={}) {
- state.editing=row.id||null;$('#editor-title').textContent=(row.id?'Editar ':'Novo ')+({records:'registro ambiental',goals:'objetivo ambiental',actions:'plano de ação',sectors:'setor',partners:'parceiro'}[state.page]);
+ state.editing=row.id||null;$('#editor-title').textContent=(row.id?'Editar ':'Novo ')+({records:'registro ambiental',goals:'objetivo ambiental',actions:'plano de ação',sectors:'setor',partners:'parceiro',users:'conta'}[state.page]);
  const sectors=state.sectors.filter(s=>s.active||s.id===row.sector_id).map(s=>[s.id,s.name+(s.active?'':' (inativo)')]);
  const partners=[['','Selecione'],...state.partners.filter(p=>p.active||p.id===row.partner_id).map(p=>[p.id,p.name+(p.active?'':' (inativo)')])];
  const metricOptions=Object.entries(metrics);let fields='';
@@ -115,6 +121,8 @@ function edit(row={}) {
    fields=field('title','Título','text',row.title||'',null,true)+field('metric','Indicador','text',row.metric||'agua',metricOptions)+field('sector_id','Setor','text',row.sector_id||'',sectors)+field('start_date','Início','date',row.start_date||'')+field('end_date','Fim','date',row.end_date||'')+field('limit_value','Limite na unidade do indicador','number',row.limit_value||'');
  } else if(state.page==='actions') {
    fields=field('title','Título','text',row.title||'',null,true)+field('description','Descrição da ação','textarea',row.description||'',null,true)+field('sector_id','Setor','text',row.sector_id||'',sectors)+field('owner_id','Responsável','text',row.owner_id||'',state.users.filter(u=>u.role!=='consulta').map(u=>[u.id,u.name]))+field('due_date','Prazo','date',row.due_date||'')+field('status','Situação','text',row.status||'aberta',Object.entries(statuses))+field('evidence','Evidência de conclusão','textarea',row.evidence||'',null,true);
+ } else if(state.page==='users') {
+   fields=field('name','Nome','text',row.name||'',null,true)+field('email','E-mail','email',row.email||'',null,true)+field('role','Perfil','text',row.role||'consulta',[['gestor','Gestor'],['operador','Operador'],['consulta','Consulta']])+(row.id?field('active','Situação','text',row.active?'1':'0',[['1','Ativo'],['0','Inativo']]):field('password','Senha inicial (mínimo 12 caracteres)','password','',null,true));
  } else {
    fields=field('name','Nome','text',row.name||'',null,true)+(state.page==='partners'?field('contact','Contato','text',row.contact||'',null,true):'')+field('active','Situação','text',row.active===0?'0':'1',[['1','Ativo'],['0','Inativo']]);
  }
@@ -133,6 +141,23 @@ $('#edit-form').addEventListener('submit',async(e)=>{
  if(state.page==='records'&&payload.metric!=='residuos'){payload.partner_id=null;payload.waste_type='';payload.destination='';}
  if(state.page==='actions'&&payload.status!=='concluida')payload.evidence='';
  $('#save-button').disabled=true;$('#form-error').textContent='';
- try{for(const key of ['date','start_date','end_date','due_date'])if(key in payload)payload[key]=dateISO(payload[key]);await api('/'+state.page+(state.editing?'/'+state.editing:''),{method:state.editing?'PUT':'POST',body:JSON.stringify(payload)});$('#editor').close();await loadLookups();await render();notify('Registro salvo com sucesso.');}catch(err){$('#form-error').textContent=err.message;}finally{$('#save-button').disabled=false;}
+ try{for(const key of ['date','start_date','end_date','due_date'])if(key in payload)payload[key]=dateISO(payload[key]);await api((state.page==='users'?'/admin/users':'/'+state.page)+(state.editing?'/'+state.editing:''),{method:state.editing?'PUT':'POST',body:JSON.stringify(payload)});$('#editor').close();await loadLookups();await render();notify(state.page==='users'?'Conta salva com sucesso.':'Registro salvo com sucesso.');}catch(err){$('#form-error').textContent=err.message;}finally{$('#save-button').disabled=false;}
 });
+let passwordTarget=null;
+function openPasswordDialog(identifier=null) {
+ passwordTarget=identifier;$('#password-title').textContent=identifier?'Redefinir senha da conta':'Trocar minha senha';
+ $('#current-password-label').hidden=!!identifier;$('#current-password').required=!identifier;
+ $('#password-form').reset();$('#password-error').textContent='';$('#password-dialog').showModal();
+}
+$('#close-password').onclick=$('#cancel-password').onclick=()=>$('#password-dialog').close();
+$('#password-form').addEventListener('submit',async(e)=>{
+ e.preventDefault();const next=$('#new-password').value;
+ if(next!==$('#confirm-password').value){$('#password-error').textContent='As senhas não coincidem.';return;}
+ const button=$('#save-password');button.disabled=true;$('#password-error').textContent='';
+ try{await api(passwordTarget?`/admin/users/${passwordTarget}/password`:'/auth/password',{method:'POST',body:JSON.stringify(passwordTarget?{new_password:next}:{current_password:$('#current-password').value,new_password:next})});$('#password-dialog').close();notify('Senha atualizada com sucesso.');}
+ catch(err){$('#password-error').textContent=err.message;}finally{button.disabled=false;}
+});
+const today=new Date(),year=today.getFullYear(),month=String(today.getMonth()+1).padStart(2,'0');
+$('#filter-start').value=`01/${month}/${year}`;
+$('#filter-end').value=`${String(new Date(year,today.getMonth()+1,0).getDate()).padStart(2,'0')}/${month}/${year}`;
 api('/auth/me').then(enter).catch(()=>showLogin());

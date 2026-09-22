@@ -12,7 +12,7 @@ from backend.database import connect
 
 @pytest.fixture
 def client(tmp_path):
-    with TestClient(create_app(tmp_path/'test.db')) as instance:
+    with TestClient(create_app(tmp_path/'test.db', demo=True)) as instance:
         yield instance
 
 
@@ -31,9 +31,9 @@ def test_home_uses_versioned_assets_and_is_not_cached(client):
     response = client.get('/')
     assert response.status_code == 200
     assert response.headers['Cache-Control'] == 'no-store'
-    assert '/assets/app.js?v=20260922-2' in response.text
-    assert '/assets/styles.css?v=20260922-2' in response.text
-    script = client.get('/assets/app.js?v=20260922-2')
+    assert '/assets/app.js?v=20260922-3' in response.text
+    assert '/assets/styles.css?v=20260922-3' in response.text
+    script = client.get('/assets/app.js?v=20260922-3')
     assert script.status_code == 200
     assert 'function dateISO(value)' in script.text
 

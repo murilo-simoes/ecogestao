@@ -31,8 +31,8 @@ def save(db, table, payload, user, identifier=None):
         require_row(db, 'partners', data['partner_id'], active=True)
     if table == 'actions':
         owner = require_row(db, 'users', data['owner_id'])
-        if owner['role'] == 'consulta':
-            raise HTTPException(422, 'Responsável deve ser gestor ou operador.')
+        if owner['role'] == 'consulta' or not owner['active']:
+            raise HTTPException(422, 'Responsável deve ser um gestor ou operador ativo.')
         data['completed_at'] = ((before or {}).get('completed_at') or datetime.now(timezone.utc).isoformat()) if data['status'] == 'concluida' else None
     if table == 'records' and not identifier:
         data['created_by'] = user['id']
