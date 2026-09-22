@@ -54,7 +54,7 @@ def create_app(db_path=None, demo=True):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; frame-ancestors 'none'"
-        if request.url.path.startswith('/api/'):
+        if request.url.path.startswith('/api/') or request.url.path == '/':
             response.headers['Cache-Control'] = 'no-store'
         return response
 

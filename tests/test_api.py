@@ -27,6 +27,17 @@ def record(**changes):
     return dict(metric='agua', date='2026-01-10', quantity=12.5, sector_id=1, **changes)
 
 
+def test_home_uses_versioned_assets_and_is_not_cached(client):
+    response = client.get('/')
+    assert response.status_code == 200
+    assert response.headers['Cache-Control'] == 'no-store'
+    assert '/assets/app.js?v=20260922-2' in response.text
+    assert '/assets/styles.css?v=20260922-2' in response.text
+    script = client.get('/assets/app.js?v=20260922-2')
+    assert script.status_code == 200
+    assert 'function dateISO(value)' in script.text
+
+
 def test_session_lifecycle_and_cookie(client):
     assert client.get('/api/records').status_code == 401
     response=client.post('/api/auth/login',json={'email':'gestor@demo.local','password':'errada'})
