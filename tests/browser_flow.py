@@ -1,5 +1,6 @@
 """Fluxo real no Chrome, com servidor local em execução."""
 import json
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
@@ -17,9 +18,18 @@ with sync_playwright() as p:
     def fill(name,value): page.locator('#field-'+name).fill(value)
     def select(name,value): page.locator('#field-'+name).select_option(value)
     def shot(name): page.screenshot(path=str(SHOTS/name),full_page=True)
-    page.goto('http://127.0.0.1:8000');shot('01_acesso.png')
+    page.goto(os.environ.get('ECOGESTAO_TEST_URL','http://127.0.0.1:8000'));shot('01_acesso.png')
     page.locator('#password').fill('EcoDemo2026!');click('Entrar')
-    expect(page.locator('#content')).to_contain_text('4.280');shot('02_painel.png')
+    expect(page.locator('#content')).to_contain_text('4.280')
+    expect(page.locator('#filter-start')).to_have_value('01/09/2026')
+    expect(page.locator('#filter-end')).to_have_value('30/09/2026')
+    page.locator('#filter-start').fill('31/02/2026');click('Aplicar filtros')
+    expect(page.locator('#notice')).to_contain_text('data válida')
+    page.locator('#filter-start').fill('01/09/2026');click('Aplicar filtros')
+    expect(page.locator('#content')).to_contain_text('4.280')
+    assert page.locator('body').evaluate('(el) => getComputedStyle(el).fontFamily').startswith('Inter')
+    assert page.evaluate("Array.from(document.fonts).some(font => font.family === 'Inter' && font.status === 'loaded')")
+    shot('02_painel.png')
     checks.append('Login real e painel com totais esperados')
     click('Setores');click('Novo registro');fill('name','Setor E2E');click('Salvar')
     expect(page.locator('#content')).to_contain_text('Setor E2E')
@@ -28,7 +38,8 @@ with sync_playwright() as p:
     expect(page.locator('#content')).to_contain_text('Parceiro E2E')
     checks.append('Cadastro de parceiro pela interface')
     click('Registros ambientais');click('Novo registro');select('metric','residuos')
-    fill('date','2026-09-20');fill('quantity','7.5')
+    expect(page.locator('#field-date')).to_have_attribute('placeholder','DD/MM/AAAA')
+    fill('date','20/09/2026');fill('quantity','7.5')
     page.locator('#field-sector_id').select_option(label='Setor E2E')
     page.locator('#field-partner_id').select_option(label='Parceiro E2E')
     fill('waste_type','Papel de teste');fill('destination','Reciclagem');fill('note','Registro criado no teste do navegador');click('Salvar')
@@ -36,12 +47,12 @@ with sync_playwright() as p:
     checks.append('Registro real de resíduos com vínculos')
     click('Metas');click('Novo registro');fill('title','Meta E2E de resíduos');select('metric','residuos')
     page.locator('#field-sector_id').select_option(label='Setor E2E')
-    fill('start_date','2026-09-01');fill('end_date','2026-09-30');fill('limit_value','10');click('Salvar')
+    fill('start_date','01/09/2026');fill('end_date','30/09/2026');fill('limit_value','10');click('Salvar')
     expect(page.locator('#content')).to_contain_text('7,5 / 10 kg');shot('04_metas.png')
     checks.append('Meta calculada com os dados persistidos')
     click('Ações corretivas');click('Novo registro');fill('title','Ação E2E');fill('description','Verificar separação do material coletado.')
     page.locator('#field-sector_id').select_option(label='Setor E2E')
-    fill('due_date','2026-09-25');click('Salvar')
+    fill('due_date','25/09/2026');click('Salvar')
     row=page.locator('tr').filter(has_text='Ação E2E');expect(row).to_be_visible()
     row.get_by_role('button',name='Editar').click();select('status','concluida');fill('evidence','Inspeção concluída e segregação conferida no teste.');click('Salvar')
     expect(row).to_contain_text('Concluída');shot('05_acoes.png')

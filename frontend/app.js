@@ -8,6 +8,17 @@ const statuses = {aberta:'Aberta', em_andamento:'Em andamento', concluida:'Concl
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number = (v) => v == null ? 'Sem dados' : Number(v).toLocaleString('pt-BR',{maximumFractionDigits:3});
 const dateLabel = (v) => v ? String(v).slice(0,10).split('-').reverse().join('/') : '';
+function dateISO(value) {
+  if (!value) return '';
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
+  if (!match) throw new Error('Informe a data no formato DD/MM/AAAA.');
+  const [, day, month, year] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month)-1, Number(day)));
+  if (date.getUTCFullYear()!==Number(year) || date.getUTCMonth()+1!==Number(month) || date.getUTCDate()!==Number(day)) {
+    throw new Error('Informe uma data válida no formato DD/MM/AAAA.');
+  }
+  return `${year}-${month}-${day}`;
+}
 const canWrite = () => state.user?.role !== 'consulta';
 const isManager = () => state.user?.role === 'gestor';
 
@@ -22,7 +33,7 @@ async function api(path, options={}) {
 }
 function notify(message, error=false) {$('#notice').textContent=message;$('#notice').className=error?'error-notice':'';$('#notice').hidden=false;}
 function showLogin() {$('#app').hidden=true;$('#login-screen').hidden=false;$('#password').value='';}
-function query() {const p=new URLSearchParams();[['start','#filter-start'],['end','#filter-end'],['sector_id','#filter-sector']].forEach(([k,id])=>{if($(id).value)p.set(k,$(id).value);});return '?'+p.toString();}
+function query() {const p=new URLSearchParams();[['start','#filter-start'],['end','#filter-end']].forEach(([k,id])=>{if($(id).value)p.set(k,dateISO($(id).value));});if($('#filter-sector').value)p.set('sector_id',$('#filter-sector').value);return '?'+p.toString();}
 function option(value,label,selected=false) {return `<option value="${esc(value)}" ${selected?'selected':''}>${esc(label)}</option>`;}
 async function loadLookups() {
   [state.sectors,state.partners,state.users]=await Promise.all([api('/sectors'),api('/partners'),api('/users')]);
@@ -38,7 +49,7 @@ async function enter(user) {
 $('#login-form').addEventListener('submit',async(e)=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{await enter(await api('/auth/login',{method:'POST',body:JSON.stringify({email:$('#email').value,password:$('#password').value})}));}catch(err){$('#login-error').textContent=err.message;}finally{button.disabled=false;}});
 $('#logout').addEventListener('click',async()=>{try{await api('/auth/logout',{method:'POST'});state.user=null;showLogin();}catch(err){notify(err.message,true);}});
 document.querySelectorAll('nav button').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.page)));
-$('#apply-filter').addEventListener('click',()=>render().catch(err=>notify(err.message,true)));
+$('#apply-filter').addEventListener('click',()=>render().then(()=>{$('#notice').hidden=true;}).catch(err=>notify(err.message,true)));
 async function navigate(page) {state.page=page;$('#page-title').textContent=names[page];$('#notice').hidden=true;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('selected',b.dataset.page===page));$('#filters').hidden=!['dashboard','records','reports'].includes(page);try{await render();}catch(err){notify(err.message,true);}}
 function empty() {return '<div class="empty">Nenhum registro encontrado.<br>Revise os filtros ou cadastre um novo item.</div>';}
 function table(headers,rows) {return rows.length?`<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:empty();}
@@ -65,7 +76,7 @@ async function render() {
    const reporting=page==='reports';
    const description=reporting?'Relatório dos registros filtrados. Exportação com os mesmos dados e unidades.':'Consumos do período e movimentações de resíduos. Quantidade é consumo, não leitura acumulada de medidor.';
    content.innerHTML=toolbar(description,!reporting&&canWrite())+(reporting?'<div class="toolbar"><button id="download-csv">Baixar CSV</button><button id="print-report" class="secondary">Imprimir relatório</button></div>':'')+`<div class="panel">${table(['Data','Indicador','Quantidade','Setor','Destinação / observação',...(reporting?[]:['Ações'])],state.rows.map(r=>[esc(dateLabel(r.date)),esc(metrics[r.metric]),`${number(r.quantity)} ${units[r.metric]}`,esc(r.sector_name),r.metric==='residuos'?`${esc(r.waste_type)} · ${esc(r.destination)}<br><small>${esc(r.partner_name)}${r.note?' · '+esc(r.note):''}</small>`:esc(r.note),...(reporting?[]:[rowButtons(r.id,canWrite())])]))}</div>`;
-   if(reporting){$('#download-csv').onclick=()=>{location.href='/api/reports/records.csv'+query();};$('#print-report').onclick=()=>window.print();}
+   if(reporting){$('#download-csv').onclick=()=>{try{location.href='/api/reports/records.csv'+query();}catch(err){notify(err.message,true);}};$('#print-report').onclick=()=>window.print();}
  } else if(page==='goals') {
    state.rows=await api('/goals');
    content.innerHTML=toolbar('Limites máximos por setor e período. Metas sobrepostas para o mesmo indicador não são permitidas.',isManager())+`<div class="panel">${table(['Meta','Setor / período','Realizado / limite','Situação','Ações'],state.rows.map(g=>[esc(g.title),`${esc(g.sector_name)}<br><small>${dateLabel(g.start_date)} a ${dateLabel(g.end_date)}</small>`,`${number(g.actual)} / ${number(g.limit_value)} ${units[g.metric]}`,goalBadge(g),rowButtons(g.id,isManager())]))}</div>`;
@@ -90,7 +101,7 @@ function field(name,label,type='text',value='',options=null,wide=false) {
  let control;
  if(options)control=`<select id="${id}" name="${name}">${options.map(([v,l])=>option(v,l,String(v)===String(value))).join('')}</select>`;
  else if(type==='textarea')control=`<textarea id="${id}" name="${name}" maxlength="2000">${esc(value)}</textarea>`;
- else control=`<input id="${id}" name="${name}" type="${type}" value="${esc(value)}" ${type==='number'?'min="0.001" max="1000000000" step="any"':''} ${['note','contact','evidence'].includes(name)?'':'required'} maxlength="2000">`;
+ else control=`<input id="${id}" name="${name}" type="${type==='date'?'text':type}" value="${esc(type==='date'?dateLabel(value):value)}" ${type==='date'?'inputmode="numeric" placeholder="DD/MM/AAAA" pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}"':''} ${type==='number'?'min="0.001" max="1000000000" step="any"':''} ${['note','contact','evidence'].includes(name)?'':'required'} maxlength="${type==='date'?10:2000}">`;
  return `<label class="${wide?'wide':''}">${esc(label)}${control}</label>`;
 }
 function edit(row={}) {
@@ -122,6 +133,6 @@ $('#edit-form').addEventListener('submit',async(e)=>{
  if(state.page==='records'&&payload.metric!=='residuos'){payload.partner_id=null;payload.waste_type='';payload.destination='';}
  if(state.page==='actions'&&payload.status!=='concluida')payload.evidence='';
  $('#save-button').disabled=true;$('#form-error').textContent='';
- try{await api('/'+state.page+(state.editing?'/'+state.editing:''),{method:state.editing?'PUT':'POST',body:JSON.stringify(payload)});$('#editor').close();await loadLookups();await render();notify('Registro salvo com sucesso.');}catch(err){$('#form-error').textContent=err.message;}finally{$('#save-button').disabled=false;}
+ try{for(const key of ['date','start_date','end_date','due_date'])if(key in payload)payload[key]=dateISO(payload[key]);await api('/'+state.page+(state.editing?'/'+state.editing:''),{method:state.editing?'PUT':'POST',body:JSON.stringify(payload)});$('#editor').close();await loadLookups();await render();notify('Registro salvo com sucesso.');}catch(err){$('#form-error').textContent=err.message;}finally{$('#save-button').disabled=false;}
 });
 api('/auth/me').then(enter).catch(()=>showLogin());

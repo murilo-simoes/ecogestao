@@ -32,6 +32,10 @@ Não é necessário ativar o ambiente virtual, alterar a política de execução
 
 Contas são pré-configuradas pelo inicializador. Não há tela de gestão de usuários nem recuperação de senha nesta versão. O software foi preparado para demonstração local, não para publicação direta na internet com essas credenciais.
 
+## Interface e datas
+
+A interface usa a fonte Inter, incluída localmente em `frontend/fonts` sob a licença SIL Open Font License (`frontend/fonts/OFL.txt`). Não depende de um serviço de fontes externo. Todos os campos e filtros de data são apresentados e preenchidos como **DD/MM/AAAA**. A aplicação valida dias e meses antes de enviar a data à API; o contrato HTTP e o SQLite continuam a utilizar `AAAA-MM-DD`.
+
 ## Uso e regras
 
 1. Entre como gestor. O painel abre com setembro de 2026, mês dos dados de exemplo.
