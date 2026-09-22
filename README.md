@@ -48,6 +48,12 @@ $env:ECOGESTAO_DEMO = '1'
 .\.venv\Scripts\python.exe run.py
 ```
 
+## Avaliação pelo professor na instância publicada
+
+A versão informada pelo grupo está em https://ecogestao.murilosimoes.com.br/. Para dar acesso ao professor, entre com o gestor principal, abra **Contas** e selecione **Nova conta**. Informe o nome e o e-mail institucional do professor, escolha **Gestor** para permitir também os testes de administração e defina uma senha inicial própria com pelo menos 12 caracteres. Comunique a senha diretamente ao professor por um canal privado; não a inclua no Word, no repositório ou em capturas de tela. Ele pode usar **Trocar minha senha** após entrar.
+
+A existência da conta e o login na instância publicada devem ser conferidos no servidor depois do cadastro. O endereço foi verificado por uma consulta GET sobre HTTPS em 22/09/2026; os testes funcionais descritos neste projeto foram executados localmente.
+
 ## Interface e datas
 
 A interface usa a fonte Inter, incluída localmente em `frontend/fonts` sob a licença SIL Open Font License (`frontend/fonts/OFL.txt`). Não depende de um serviço de fontes externo. Todos os campos e filtros de data são apresentados e preenchidos como **DD/MM/AAAA**. A aplicação valida dias e meses antes de enviar a data à API; o contrato HTTP e o SQLite continuam a utilizar `AAAA-MM-DD`.
