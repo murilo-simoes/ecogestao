@@ -3,12 +3,9 @@ import argparse
 import getpass
 import os
 
-from backend.database import ROOT, connect, initialize
+from backend.database import DEMO_EMAILS, ROOT, connect, initialize
 from backend.schemas import AccountCreate
 from backend.security import hash_password
-
-DEMO_EMAILS = ('gestor@demo.local', 'operador@demo.local', 'consulta@demo.local')
-
 
 def create_first_manager(path, name, email, password):
     account = AccountCreate(name=name, email=email, role='gestor', password=password)

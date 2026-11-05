@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .database import ROOT, audit, connect, initialize
+from .database import DEMO_EMAILS, ROOT, audit, connect, initialize
 from .schemas import AccountCreate, AccountUpdate, Action, Goal, Login, Partner, PasswordChange, PasswordReset, Record, Sector
 from .security import hash_password, token_hash, verify_password
 from .services import goal_results, list_records, period_filter, remove, save
@@ -31,7 +31,7 @@ def create_app(db_path=None, demo=None):
             app.state.demo_data = bool(db.execute("SELECT 1 FROM app_settings WHERE key='demo_data' AND value='1'").fetchone())
         if not demo:
             with connect(path) as db:
-                if db.execute("SELECT 1 FROM users WHERE active=1 AND email IN ('gestor@demo.local','operador@demo.local','consulta@demo.local')").fetchone():
+                if db.execute('SELECT 1 FROM users WHERE active=1 AND email IN (?,?,?)', DEMO_EMAILS).fetchone():
                     raise RuntimeError('Contas públicas de demonstração ainda estão ativas. Execute manage_users.py para criar o gestor e desativá-las.')
                 if not db.execute("SELECT 1 FROM users WHERE role='gestor' AND active=1").fetchone():
                     raise RuntimeError('Nenhum gestor ativo. Execute manage_users.py antes de iniciar o servidor.')
@@ -145,8 +145,13 @@ def create_app(db_path=None, demo=None):
         with connect(path) as db:
             return [dict(r) for r in db.execute('SELECT id,name,email,role,active FROM users ORDER BY name')]
 
+    def validate_account_email(email, active):
+        if not demo and active and email in DEMO_EMAILS:
+            raise HTTPException(422, 'Este e-mail é reservado ao modo de demonstração. Use outro endereço para a conta ativa.')
+
     @app.post('/api/admin/users', status_code=201, tags=['Contas'])
     def create_user(payload: AccountCreate, user=Depends(manager)):
+        validate_account_email(payload.email, active=True)
         with connect(path) as db:
             cursor = db.execute('INSERT INTO users(name,email,password_hash,role,active) VALUES(?,?,?,?,1)',
                                 (payload.name, payload.email, hash_password(payload.password), payload.role))
@@ -157,6 +162,7 @@ def create_app(db_path=None, demo=None):
 
     @app.put('/api/admin/users/{identifier}', tags=['Contas'])
     def update_user(identifier: int, payload: AccountUpdate, user=Depends(manager)):
+        validate_account_email(payload.email, payload.active)
         with connect(path) as db:
             db.execute('BEGIN IMMEDIATE')
             before_row = db.execute('SELECT id,name,email,role,active FROM users WHERE id=?', (identifier,)).fetchone()

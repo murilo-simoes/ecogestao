@@ -31,6 +31,10 @@ def test_bootstrap_preserves_existing_data_and_disables_demo_accounts(tmp_path):
         users = client.get('/api/admin/users').json()
         assert len([u for u in users if u['active']]) == 1
         assert all('password' not in u for u in users)
+        demo_user = next(u for u in users if u['email'] == 'gestor@demo.local')
+        reactivation = {k: demo_user[k] for k in ('name', 'email', 'role')}
+        reactivation['active'] = True
+        assert client.put(f'/api/admin/users/{demo_user["id"]}', json=reactivation).status_code == 422
     with pytest.raises(ValueError, match='Já existe'):
         create_first_manager(path, 'Outra', 'outra@exemplo.com', 'outra senha longa 2026')
 
@@ -99,3 +103,20 @@ def test_normal_mode_requires_bootstrap(tmp_path):
     with pytest.raises(RuntimeError, match='Nenhum gestor ativo'):
         with TestClient(create_app(tmp_path / 'empty.db', demo=False)):
             pass
+
+
+def test_normal_mode_rejects_reserved_addresses_before_restart(tmp_path):
+    path = tmp_path / 'reserved.db'
+    email, password = 'gestor@exemplo.com', 'senha inicial longa 2026'
+    identifier, _ = create_first_manager(path, 'Gestor', email, password)
+    with TestClient(create_app(path, demo=False)) as client:
+        assert signin(client, email, password).status_code == 200
+        create = {'name': 'Outra conta', 'email': 'GESTOR@demo.local',
+                  'role': 'operador', 'password': 'senha longa para teste'}
+        assert client.post('/api/admin/users', json=create).status_code == 422
+        edit = {'name': 'Gestor', 'email': 'operador@demo.local', 'role': 'gestor', 'active': True}
+        assert client.put(f'/api/admin/users/{identifier}', json=edit).status_code == 422
+
+    with TestClient(create_app(path, demo=False)) as client:
+        assert signin(client, email, password).status_code == 200
+        assert len(client.get('/api/admin/users').json()) == 1

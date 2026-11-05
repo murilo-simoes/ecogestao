@@ -8,6 +8,12 @@ from pathlib import Path
 from .security import hash_password
 
 ROOT = Path(__file__).resolve().parents[1]
+DEMO_ACCOUNTS = (
+    ('Gestor Demonstração', 'gestor@demo.local', 'gestor'),
+    ('Operador Demonstração', 'operador@demo.local', 'operador'),
+    ('Consulta Demonstração', 'consulta@demo.local', 'consulta'),
+)
+DEMO_EMAILS = tuple(email for _, email, _ in DEMO_ACCOUNTS)
 
 
 @contextmanager
@@ -33,16 +39,13 @@ def initialize(path, demo=False):
         if not any(row['name'] == 'active' for row in db.execute('PRAGMA table_info(users)')):
             db.execute('ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))')
         if demo and not db.execute('SELECT 1 FROM users').fetchone():
-            for name, email, role in [
-                ('Gestor Demonstração', 'gestor@demo.local', 'gestor'),
-                ('Operador Demonstração', 'operador@demo.local', 'operador'),
-                ('Consulta Demonstração', 'consulta@demo.local', 'consulta'),
-            ]:
+            for name, email, role in DEMO_ACCOUNTS:
                 db.execute('INSERT INTO users(name,email,password_hash,role) VALUES(?,?,?,?)',
                            (name, email, hash_password('EcoDemo2026!'), role))
             db.executescript((ROOT / 'database/seed.sql').read_text(encoding='utf-8'))
         # A etiqueta acompanha os registros fictícios mesmo após trocar as contas.
-        if db.execute("SELECT 1 FROM records r JOIN users u ON u.id=r.created_by WHERE u.email IN ('gestor@demo.local','operador@demo.local','consulta@demo.local') LIMIT 1").fetchone():
+        if db.execute('SELECT 1 FROM records r JOIN users u ON u.id=r.created_by WHERE u.email IN (?,?,?) LIMIT 1',
+                      DEMO_EMAILS).fetchone():
             db.execute("INSERT OR IGNORE INTO app_settings(key,value) VALUES('demo_data','1')")
 
 

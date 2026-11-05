@@ -21,20 +21,23 @@ def require_row(db, table, identifier, active=False):
 def save(db, table, payload, user, identifier=None):
     if table not in TABLES:
         raise ValueError('Tabela não permitida')
+    if identifier is not None and identifier <= 0:
+        raise HTTPException(422, 'O identificador deve ser um inteiro positivo.')
     if not db.in_transaction:
         db.execute('BEGIN IMMEDIATE')
-    before = require_row(db, table, identifier) if identifier else None
+    before = require_row(db, table, identifier) if identifier is not None else None
     data = payload.model_dump(mode='json')
     if 'sector_id' in data:
         require_row(db, 'sectors', data['sector_id'], active=True)
     if data.get('partner_id'):
         require_row(db, 'partners', data['partner_id'], active=True)
     if table == 'actions':
-        owner = require_row(db, 'users', data['owner_id'])
-        if owner['role'] == 'consulta' or not owner['active']:
-            raise HTTPException(422, 'Responsável deve ser um gestor ou operador ativo.')
+        if before is None or data['owner_id'] != before['owner_id']:
+            owner = require_row(db, 'users', data['owner_id'])
+            if owner['role'] == 'consulta' or not owner['active']:
+                raise HTTPException(422, 'Responsável deve ser um gestor ou operador ativo.')
         data['completed_at'] = ((before or {}).get('completed_at') or datetime.now(timezone.utc).isoformat()) if data['status'] == 'concluida' else None
-    if table == 'records' and not identifier:
+    if table == 'records' and identifier is None:
         data['created_by'] = user['id']
     if table == 'goals':
         overlap = db.execute('SELECT id FROM goals WHERE metric=? AND sector_id=? '
@@ -42,7 +45,7 @@ def save(db, table, payload, user, identifier=None):
                              (data['metric'], data['sector_id'], data['end_date'], data['start_date'], identifier or 0)).fetchone()
         if overlap:
             raise HTTPException(409, 'Já existe meta desse indicador e setor em período sobreposto.')
-    if identifier:
+    if identifier is not None:
         db.execute(f'UPDATE {table} SET '+','.join(f'{key}=?' for key in data)+' WHERE id=?',
                    [*data.values(), identifier])
     else:

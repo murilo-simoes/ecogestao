@@ -120,7 +120,11 @@ function edit(row={}) {
  } else if(state.page==='goals') {
    fields=field('title','Título','text',row.title||'',null,true)+field('metric','Indicador','text',row.metric||'agua',metricOptions)+field('sector_id','Setor','text',row.sector_id||'',sectors)+field('start_date','Início','date',row.start_date||'')+field('end_date','Fim','date',row.end_date||'')+field('limit_value','Limite na unidade do indicador','number',row.limit_value||'');
  } else if(state.page==='actions') {
-   fields=field('title','Título','text',row.title||'',null,true)+field('description','Descrição da ação','textarea',row.description||'',null,true)+field('sector_id','Setor','text',row.sector_id||'',sectors)+field('owner_id','Responsável','text',row.owner_id||'',state.users.filter(u=>u.role!=='consulta').map(u=>[u.id,u.name]))+field('due_date','Prazo','date',row.due_date||'')+field('status','Situação','text',row.status||'aberta',Object.entries(statuses))+field('evidence','Evidência de conclusão','textarea',row.evidence||'',null,true);
+   const owners=state.users.filter(u=>u.role!=='consulta').map(u=>[u.id,u.name]);
+   if(row.owner_id && !owners.some(([id])=>id===row.owner_id)) {
+     owners.unshift([row.owner_id,`${row.owner_name} (indisponível para novas atribuições)`]);
+   }
+   fields=field('title','Título','text',row.title||'',null,true)+field('description','Descrição da ação','textarea',row.description||'',null,true)+field('sector_id','Setor','text',row.sector_id||'',sectors)+field('owner_id','Responsável','text',row.owner_id||'',owners)+field('due_date','Prazo','date',row.due_date||'')+field('status','Situação','text',row.status||'aberta',Object.entries(statuses))+field('evidence','Evidência de conclusão','textarea',row.evidence||'',null,true);
  } else if(state.page==='users') {
    fields=field('name','Nome','text',row.name||'',null,true)+field('email','E-mail','email',row.email||'',null,true)+field('role','Perfil','text',row.role||'consulta',[['gestor','Gestor'],['operador','Operador'],['consulta','Consulta']])+(row.id?field('active','Situação','text',row.active?'1':'0',[['1','Ativo'],['0','Inativo']]):field('password','Senha inicial (mínimo 12 caracteres)','password','',null,true));
  } else {

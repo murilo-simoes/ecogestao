@@ -31,9 +31,9 @@ def test_home_uses_versioned_assets_and_is_not_cached(client):
     response = client.get('/')
     assert response.status_code == 200
     assert response.headers['Cache-Control'] == 'no-store'
-    assert '/assets/app.js?v=20260922-3' in response.text
+    assert '/assets/app.js?v=20261105-1' in response.text
     assert '/assets/styles.css?v=20260922-3' in response.text
-    script = client.get('/assets/app.js?v=20260922-3')
+    script = client.get('/assets/app.js?v=20261105-1')
     assert script.status_code == 200
     assert 'function dateISO(value)' in script.text
 
@@ -83,6 +83,13 @@ def test_record_crud_persistence_and_audit(client):
     operations=[a['operation'] for a in client.get('/api/audit').json() if a['entity_id']==identifier]
     assert operations==['excluir','alterar','criar']
     assert client.delete(f'/api/records/{identifier}').status_code==404
+
+
+def test_update_with_zero_id_does_not_create_record(client):
+    login(client)
+    before = client.get('/api/records').json()
+    assert client.put('/api/records/0', json=record()).status_code == 422
+    assert client.get('/api/records').json() == before
 
 
 @pytest.mark.parametrize('key,value',[('quantity',0),('quantity',-1),('quantity',1e20),('metric','gas'),('sector_id',-2),('date','invalida'),('date',(date.today()+timedelta(days=1)).isoformat())])
@@ -168,6 +175,28 @@ def test_action_owner_cannot_be_readonly(client):
     login(client)
     payload={'title':'Teste de ação','description':'Teste de atribuição','sector_id':1,'owner_id':3,'due_date':'2026-12-01'}
     assert client.post('/api/actions',json=payload).status_code==422
+
+
+def test_edit_action_preserves_existing_inactive_owner(client):
+    login(client)
+    payload = {'title': 'Revisar equipamentos', 'description': 'Descrição original',
+               'sector_id': 1, 'owner_id': 2, 'due_date': '2026-12-01'}
+    created = client.post('/api/actions', json=payload)
+    assert created.status_code == 201
+    endpoint = f'/api/actions/{created.json()["id"]}'
+    operator = {'name': 'Operador Demonstração', 'email': 'operador@demo.local',
+                'role': 'operador', 'active': False}
+    assert client.put('/api/admin/users/2', json=operator).status_code == 200
+
+    payload['description'] = 'Descrição revisada'
+    edited = client.put(endpoint, json=payload)
+    assert edited.status_code == 200
+    assert edited.json()['description'] == 'Descrição revisada'
+    assert edited.json()['owner_id'] == 2
+
+    reassigned = client.put(endpoint, json={**payload, 'owner_id': 1})
+    assert reassigned.status_code == 200 and reassigned.json()['owner_id'] == 1
+    assert client.put(endpoint, json=payload).status_code == 422
 
 
 def test_csv_uses_same_filter_and_neutralizes_formula(client):
