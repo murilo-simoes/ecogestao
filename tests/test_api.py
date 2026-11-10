@@ -17,7 +17,8 @@ def client(tmp_path):
 
 
 def login(client, role='gestor'):
-    response = client.post('/api/auth/login', json={'email':role+'@demo.local','password':'EcoDemo2026!'})
+    password = 'Testegestao1' if role == 'gestor' else 'EcoDemo2026!'
+    response = client.post('/api/auth/login', json={'email':role+'@demo.local','password':password})
     assert response.status_code == 200
     client.headers['X-CSRF-Token'] = response.json()['csrf']
     return response.json()
@@ -31,9 +32,9 @@ def test_home_uses_versioned_assets_and_is_not_cached(client):
     response = client.get('/')
     assert response.status_code == 200
     assert response.headers['Cache-Control'] == 'no-store'
-    assert '/assets/app.js?v=20261105-1' in response.text
+    assert '/assets/app.js?v=20261110-1' in response.text
     assert '/assets/styles.css?v=20260922-3' in response.text
-    script = client.get('/assets/app.js?v=20261105-1')
+    script = client.get('/assets/app.js?v=20261110-1')
     assert script.status_code == 200
     assert 'function dateISO(value)' in script.text
 

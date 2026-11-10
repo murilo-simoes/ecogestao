@@ -1,6 +1,6 @@
 # EcoGestão
 
-Aplicação acadêmica de gestão ambiental organizacional. Implementa serviços HTTP próprios e uma interface web que os consome por `fetch`. Registra água, energia, resíduos, metas, ações corretivas, setores e parceiros. Em um banco novo, o modo normal inicia sem contas nem dados fictícios; há um modo de demonstração opcional.
+Aplicação acadêmica de gestão ambiental organizacional. Implementa serviços HTTP próprios e uma interface web que os consome por `fetch`. Registra água, energia, resíduos, metas, ações corretivas, setores e parceiros. Em um banco novo, o modo normal inicia com a conta fixa de gestor para avaliação. Os dados ambientais fictícios são opcionais.
 
 ## Requisitos
 
@@ -13,11 +13,10 @@ Abra o PowerShell na pasta `software` e execute:
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe manage_users.py --name "Gestor principal" --email gestor@seu-dominio.com
 .\.venv\Scripts\python.exe run.py
 ```
 
-Acesse [EcoGestão local](http://127.0.0.1:8000). O comando `manage_users.py` cria o banco, solicita a senha sem exibi-la e cadastra o primeiro gestor. Use uma senha própria com pelo menos 12 caracteres. O banco padrão é `data/ecogestao.db`; `ECOGESTAO_DB` seleciona outro arquivo e deve apontar para o mesmo banco em todos os comandos. Encerre o servidor com `Ctrl+C`. Os dados persistem entre execuções.
+Acesse [EcoGestão local](http://127.0.0.1:8000) e entre com o e-mail **gestor@demo.local** e a senha **Testegestao1**. Essa conta é criada ou recuperada automaticamente na inicialização, tanto no modo normal quanto no modo de demonstração. O banco padrão é `data/ecogestao.db`. `ECOGESTAO_DB` seleciona outro arquivo e deve apontar para o mesmo banco em todos os comandos. Encerre o servidor com `Ctrl+C`. Os dados persistem entre execuções.
 
 Em Linux/macOS, use `python3.12 -m venv .venv` e `.venv/bin/python` nos comandos equivalentes. A suíte de interface fornecida usa o canal Chrome, que precisa estar instalado.
 
@@ -25,9 +24,13 @@ Não é necessário ativar o ambiente virtual, alterar a política de execução
 
 ## Contas e migração de um banco existente
 
-O primeiro gestor é criado pelo comando acima. Depois de entrar, abra **Contas** para criar gestores, operadores e usuários de consulta, editar seus dados, desativá-los e redefinir suas senhas. Cada pessoa pode usar **Trocar minha senha**. A desativação impede novos acessos e encerra sessões, mas preserva registros e ações vinculados à conta. A aplicação impede remover o próprio acesso de gestor e deixar o banco sem gestor ativo. Não há cadastro público nem envio de senha por e-mail; o gestor deve comunicar a senha inicial por um canal apropriado.
+A conta `gestor@demo.local` mantém a senha `Testegestao1`, o perfil gestor e o acesso ativo. A gestão de contas identifica esse cadastro como **Conta fixa de avaliação**. O servidor protege seu e-mail, perfil, ativação e senha para preservar o acesso exigido para a avaliação. Ao atualizar um banco antigo, a inicialização recupera essa conta usando o mesmo identificador e preserva seus registros vinculados.
 
-Se o servidor já usa um banco com contas de demonstração, **faça backup do arquivo SQLite e pare o aplicativo**. Após atualizar o código, execute `manage_users.py` usando exatamente o mesmo caminho de banco do servidor. O comando cria seu gestor e desativa as três contas públicas e suas sessões numa transação, sem apagar os dados ambientais. Só então reinicie o aplicativo. Se as contas públicas ainda estiverem ativas, o servidor recusa iniciar no modo normal. Os registros fictícios antigos continuam identificados como demonstração; para operar exclusivamente com dados reais, use um banco novo e cadastre seus próprios setores e registros.
+Depois de entrar, abra **Contas** para criar gestores, operadores e usuários de consulta, editar seus dados, desativá-los e redefinir suas senhas. As contas individuais podem usar **Trocar minha senha**. A desativação impede novos acessos e encerra sessões, mas preserva registros e ações vinculados à conta. Não há cadastro público nem envio de senha por e-mail.
+
+Para atualizar o servidor, pare o aplicativo, faça backup do arquivo SQLite, obtenha o código atualizado e reinicie usando o mesmo `ECOGESTAO_DB`. A inicialização aplica a conta fixa automaticamente. No modo normal, as contas opcionais `operador@demo.local` e `consulta@demo.local` são desativadas e suas sessões são encerradas. Os registros ambientais e as contas próprias são preservados. Os dados fictícios antigos continuam identificados como demonstração.
+
+O comando `manage_users.py` permite criar o primeiro gestor com e-mail próprio, além do gestor fixo. Ele solicita a senha sem exibi-la. Use uma senha própria com pelo menos 12 caracteres.
 
 Em Linux, por exemplo, com o ambiente virtual já instalado e o mesmo `ECOGESTAO_DB` usado pelo serviço:
 
@@ -39,7 +42,7 @@ Não passe a senha como argumento: o comando a solicita sem mostrá-la. Defina `
 
 ### Demonstração acadêmica local
 
-Para gerar um banco separado com dados fictícios, use `init_db.py --demo` e inicie o servidor com `ECOGESTAO_DEMO=1`. Somente esse modo aceita as contas `gestor@demo.local`, `operador@demo.local` e `consulta@demo.local`, todas com a senha pública `EcoDemo2026!`. Nunca use `ECOGESTAO_DEMO=1` no servidor público.
+Para gerar um banco separado com dados fictícios, use `init_db.py --demo` e inicie o servidor com `ECOGESTAO_DEMO=1`. A conta `gestor@demo.local` usa `Testegestao1` em ambos os modos. As contas opcionais `operador@demo.local` e `consulta@demo.local` usam `EcoDemo2026!` e ficam disponíveis no modo de demonstração.
 
 ```powershell
 $env:ECOGESTAO_DB = Join-Path $PWD 'data\demonstracao.db'
@@ -50,9 +53,9 @@ $env:ECOGESTAO_DEMO = '1'
 
 ## Avaliação pelo professor na instância publicada
 
-A versão informada pelo grupo está em https://ecogestao.murilosimoes.com.br/. Para dar acesso ao professor, entre com o gestor principal, abra **Contas** e selecione **Nova conta**. Informe o nome e o e-mail institucional do professor, escolha **Gestor** para permitir também os testes de administração e defina uma senha inicial própria com pelo menos 12 caracteres. Para uma conta individual, comunique a senha diretamente ao professor por um canal privado e não a inclua no repositório ou em capturas de tela. Ele pode usar **Trocar minha senha** após entrar. Se o grupo optar por divulgar no Word uma conta compartilhada de demonstração, essa conta não deve ser usada para dados reais e sua senha deve ser alterada ou a conta desativada após a avaliação.
+A versão informada pelo grupo está em https://ecogestao.murilosimoes.com.br/. Após aplicar esta versão no servidor e reiniciar o serviço, o professor pode acessar com **gestor@demo.local** e **Testegestao1**. A conta possui perfil gestor e permite avaliar cadastros, metas, ações, relatórios, histórico e administração de usuários.
 
-A existência da conta e o login na instância publicada devem ser conferidos no servidor depois do cadastro. O endereço foi verificado por uma consulta GET sobre HTTPS em 22/09/2026; os testes funcionais descritos neste projeto foram executados localmente.
+A inicialização habilita o acesso fixo automaticamente após a atualização do código. Os testes funcionais deste repositório verificam o login nos modos normal e de demonstração e sua continuidade após reinícios em ambiente local.
 
 ## Interface e datas
 
@@ -95,7 +98,7 @@ tests/
   test_accounts.py  testes de migração e autenticação
 run.py             inicialização local
 init_db.py         inicialização explícita de banco
-manage_users.py    criação segura do primeiro gestor
+manage_users.py    criação do primeiro gestor com e-mail próprio
 ```
 
 O servidor entrega os arquivos estáticos e os serviços, mas a interface acessa os dados exclusivamente pela API. A arquitetura é orientada a recursos HTTP, inspirada em REST. Como utiliza sessões no servidor, não se reivindica adesão integral à restrição de ausência de estado de sessão do REST estrito.
@@ -109,7 +112,7 @@ As principais rotas são `/api/auth/login`, `/api/auth/me`, `/api/auth/logout`, 
 Exemplo no PowerShell com o modo de demonstração local em execução:
 
 ```powershell
-$login = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/auth/login' -Method Post -ContentType 'application/json' -Body '{"email":"gestor@demo.local","password":"EcoDemo2026!"}' -SessionVariable sessaoEco
+$login = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/auth/login' -Method Post -ContentType 'application/json' -Body '{"email":"gestor@demo.local","password":"Testegestao1"}' -SessionVariable sessaoEco
 Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/records?start=2026-09-01&end=2026-09-30' -WebSession $sessaoEco
 $cabecalhosEco = @{ 'X-CSRF-Token' = $login.csrf }
 Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/auth/logout' -Method Post -WebSession $sessaoEco -Headers $cabecalhosEco

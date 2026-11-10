@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .database import DEMO_EMAILS, ROOT, audit, connect, initialize
+from .database import FIXED_MANAGER_EMAIL, OPTIONAL_DEMO_EMAILS, ROOT, audit, connect, initialize
 from .schemas import AccountCreate, AccountUpdate, Action, Goal, Login, Partner, PasswordChange, PasswordReset, Record, Sector
 from .security import hash_password, token_hash, verify_password
 from .services import goal_results, list_records, period_filter, remove, save
@@ -29,12 +29,6 @@ def create_app(db_path=None, demo=None):
         initialize(path, demo)
         with connect(path) as db:
             app.state.demo_data = bool(db.execute("SELECT 1 FROM app_settings WHERE key='demo_data' AND value='1'").fetchone())
-        if not demo:
-            with connect(path) as db:
-                if db.execute('SELECT 1 FROM users WHERE active=1 AND email IN (?,?,?)', DEMO_EMAILS).fetchone():
-                    raise RuntimeError('Contas públicas de demonstração ainda estão ativas. Execute manage_users.py para criar o gestor e desativá-las.')
-                if not db.execute("SELECT 1 FROM users WHERE role='gestor' AND active=1").fetchone():
-                    raise RuntimeError('Nenhum gestor ativo. Execute manage_users.py antes de iniciar o servidor.')
         yield
 
     app = FastAPI(title='EcoGestão API', version='1.0.0', lifespan=lifespan,
@@ -109,7 +103,7 @@ def create_app(db_path=None, demo=None):
             db.execute('INSERT INTO sessions VALUES(?,?,?,?)', (token_hash(token), user['id'], csrf, time.time()+28800))
         response.set_cookie('ecogestao_session', token, max_age=28800, httponly=True,
                             samesite='strict', secure=os.environ.get('ECOGESTAO_HTTPS') == '1')
-        return {'id': user['id'], 'name': user['name'], 'role': user['role'], 'csrf': csrf, 'demo': app.state.demo_data}
+        return {'id': user['id'], 'name': user['name'], 'email': user['email'], 'role': user['role'], 'csrf': csrf, 'demo': app.state.demo_data}
 
     @app.get('/api/auth/me', tags=['Sessão'])
     def me(user=Depends(current_user)):
@@ -123,6 +117,8 @@ def create_app(db_path=None, demo=None):
 
     @app.post('/api/auth/password', status_code=204, tags=['Sessão'])
     def change_password(payload: PasswordChange, request: Request, user=Depends(current_user)):
+        if user['email'] == FIXED_MANAGER_EMAIL:
+            raise HTTPException(409, 'A senha da conta fixa de avaliação é mantida pela configuração do sistema.')
         with connect(path) as db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT password_hash FROM users WHERE id=?', (user['id'],)).fetchone()
@@ -146,7 +142,7 @@ def create_app(db_path=None, demo=None):
             return [dict(r) for r in db.execute('SELECT id,name,email,role,active FROM users ORDER BY name')]
 
     def validate_account_email(email, active):
-        if not demo and active and email in DEMO_EMAILS:
+        if not demo and active and email in OPTIONAL_DEMO_EMAILS:
             raise HTTPException(422, 'Este e-mail é reservado ao modo de demonstração. Use outro endereço para a conta ativa.')
 
     @app.post('/api/admin/users', status_code=201, tags=['Contas'])
@@ -169,6 +165,8 @@ def create_app(db_path=None, demo=None):
             if not before_row:
                 raise HTTPException(404, 'Conta não encontrada.')
             before = dict(before_row)
+            if before['email'] == FIXED_MANAGER_EMAIL and (payload.email != FIXED_MANAGER_EMAIL or payload.role != 'gestor' or not payload.active):
+                raise HTTPException(409, 'A conta fixa de avaliação deve manter o e-mail, o perfil gestor e o acesso ativo.')
             if identifier == user['id'] and (payload.role != 'gestor' or not payload.active):
                 raise HTTPException(409, 'O gestor não pode remover o próprio acesso.')
             if before['role'] == 'gestor' and before['active'] and (payload.role != 'gestor' or not payload.active):
@@ -189,8 +187,11 @@ def create_app(db_path=None, demo=None):
             raise HTTPException(409, 'Use a troca de senha da própria conta.')
         with connect(path) as db:
             db.execute('BEGIN IMMEDIATE')
-            if not db.execute('SELECT 1 FROM users WHERE id=?', (identifier,)).fetchone():
+            account = db.execute('SELECT email FROM users WHERE id=?', (identifier,)).fetchone()
+            if not account:
                 raise HTTPException(404, 'Conta não encontrada.')
+            if account['email'] == FIXED_MANAGER_EMAIL:
+                raise HTTPException(409, 'A senha da conta fixa de avaliação é mantida pela configuração do sistema.')
             db.execute('UPDATE users SET password_hash=? WHERE id=?', (hash_password(payload.new_password), identifier))
             db.execute('DELETE FROM sessions WHERE user_id=?', (identifier,))
             audit(db, user['id'], 'redefinir_senha', 'users', identifier)

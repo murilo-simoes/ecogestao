@@ -1,6 +1,7 @@
 'use strict';
 const $ = (q) => document.querySelector(q);
 const state = {user:null, page:'dashboard', sectors:[], partners:[], users:[], rows:[], editing:null};
+const fixedManagerEmail = 'gestor@demo.local';
 const names = {dashboard:'Visão geral', records:'Registros ambientais', goals:'Metas', actions:'Ações corretivas', sectors:'Setores', partners:'Parceiros', reports:'Relatórios', audit:'Histórico de alterações', users:'Contas', api:'Serviços e API'};
 const metrics = {agua:'Água', energia:'Energia', residuos:'Resíduos'};
 const units = {agua:'m³', energia:'kWh', residuos:'kg'};
@@ -45,6 +46,7 @@ async function enter(user) {
   $('#user-name').textContent=user.name;$('#user-role').textContent={gestor:'Gestor ambiental',operador:'Operador',consulta:'Somente consulta'}[user.role];
   $('.demo-badge').hidden=!user.demo;$('#org-label').textContent=user.demo?'Organização demonstrativa':'Gestão ambiental';
   document.querySelectorAll('.manager-only').forEach(el=>el.hidden=!isManager());
+  $('#change-password').hidden=user.email===fixedManagerEmail;
   await loadLookups();await navigate('dashboard');
 }
 $('#login-form').addEventListener('submit',async(e)=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{await enter(await api('/auth/login',{method:'POST',body:JSON.stringify({email:$('#email').value,password:$('#password').value})}));}catch(err){$('#login-error').textContent=err.message;}finally{button.disabled=false;}});
@@ -94,7 +96,7 @@ async function render() {
    content.innerHTML='<p class="note">Histórico de criação, alteração e exclusão. Horários exibidos no fuso do navegador. Dados iniciais de demonstração não são alterações de usuários.</p>'+`<div class="panel">${table(['Data e hora','Usuário','Operação','Entidade','Detalhes'],state.rows.map(r=>[esc(new Date(r.timestamp).toLocaleString('pt-BR')),esc(r.user_name),esc(r.operation),esc(r.entity)+' #'+r.entity_id,`<details><summary>Ver alteração</summary><p>Antes: ${esc(r.before_json||'Não existia')}</p><p>Depois: ${esc(r.after_json||'Excluído')}</p></details>`]))}</div>`;
  } else if(page==='users') {
    state.rows=await api('/admin/users');
-   content.innerHTML=toolbar('Somente o gestor cria contas. Desative uma conta para preservar seus registros e impedir novos acessos.',true,'Nova conta')+`<div class="panel">${table(['Nome','E-mail','Perfil','Situação','Ações'],state.rows.map(u=>[esc(u.name),esc(u.email),esc({gestor:'Gestor',operador:'Operador',consulta:'Consulta'}[u.role]),u.active?'Ativo':'Inativo',`<div class="row-actions"><button data-edit="${u.id}">Editar</button>${u.id===state.user.id?'':`<button data-reset="${u.id}">Redefinir senha</button>`}</div>`]))}</div>`;
+   content.innerHTML=toolbar('Somente o gestor cria contas. Desative uma conta para preservar seus registros e impedir novos acessos.',true,'Nova conta')+`<div class="panel">${table(['Nome','E-mail','Perfil','Situação','Ações'],state.rows.map(u=>[esc(u.name),esc(u.email),esc({gestor:'Gestor',operador:'Operador',consulta:'Consulta'}[u.role]),u.active?'Ativo':'Inativo',u.email===fixedManagerEmail?'Conta fixa de avaliação':`<div class="row-actions"><button data-edit="${u.id}">Editar</button>${u.id===state.user.id?'':`<button data-reset="${u.id}">Redefinir senha</button>`}</div>`]))}</div>`;
  } else if(page==='api') {
    const spec=await api('/openapi.json');
    content.innerHTML=`<article class="panel"><h2>Contrato dos serviços</h2><p class="note">Interface web e API comunicam-se por HTTP e JSON. Escritas autenticadas exigem cookie de sessão e cabeçalho X-CSRF-Token. O contrato abaixo vem do servidor em execução.</p><p><a href="/api/openapi.json" target="_blank" rel="noopener">Abrir contrato OpenAPI em JSON</a></p>${Object.entries(spec.paths).flatMap(([path,methods])=>Object.entries(methods).map(([method,op])=>`<div class="api-row"><strong>${esc(method.toUpperCase())}</strong><div><code>${esc(path)}</code><br><small>${esc(op.summary)}</small></div></div>`)).join('')}</article>`;

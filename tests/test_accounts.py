@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend.database import connect, initialize
 from backend.main import create_app
+from backend.security import hash_password
 from manage_users import create_first_manager
 
 
@@ -22,16 +23,17 @@ def test_bootstrap_preserves_existing_data_and_disables_demo_accounts(tmp_path):
     with connect(path) as db:
         records_before = db.execute('SELECT COUNT(*) FROM records').fetchone()[0]
     identifier, disabled = create_first_manager(path, 'Gestora Real', 'REAL@exemplo.com', 'senha longa e exclusiva 2026')
-    assert identifier > 3 and disabled == 3
+    assert identifier > 3 and disabled == 2
     with TestClient(create_app(path, demo=False)) as client:
         assert signin(client, 'gestor@demo.local', 'EcoDemo2026!').status_code == 401
+        assert signin(client, 'gestor@demo.local', 'Testegestao1').status_code == 200
         signed_in = signin(client, 'real@exemplo.com', 'senha longa e exclusiva 2026')
         assert signed_in.status_code == 200 and signed_in.json()['demo'] is True
         assert len(client.get('/api/records').json()) == records_before
         users = client.get('/api/admin/users').json()
-        assert len([u for u in users if u['active']]) == 1
+        assert len([u for u in users if u['active']]) == 2
         assert all('password' not in u for u in users)
-        demo_user = next(u for u in users if u['email'] == 'gestor@demo.local')
+        demo_user = next(u for u in users if u['email'] == 'operador@demo.local')
         reactivation = {k: demo_user[k] for k in ('name', 'email', 'role')}
         reactivation['active'] = True
         assert client.put(f'/api/admin/users/{demo_user["id"]}', json=reactivation).status_code == 422
@@ -99,10 +101,14 @@ def test_legacy_users_table_gets_active_column(tmp_path):
         assert 'active' in [row['name'] for row in db.execute('PRAGMA table_info(users)')]
 
 
-def test_normal_mode_requires_bootstrap(tmp_path):
-    with pytest.raises(RuntimeError, match='Nenhum gestor ativo'):
-        with TestClient(create_app(tmp_path / 'empty.db', demo=False)):
-            pass
+@pytest.mark.parametrize('demo', [False, True])
+def test_fixed_manager_is_available_after_start_and_restart(tmp_path, demo):
+    path = tmp_path / 'fixed.db'
+    for _ in range(2):
+        with TestClient(create_app(path, demo=demo)) as client:
+            response = signin(client, 'gestor@demo.local', 'Testegestao1')
+            assert response.status_code == 200 and response.json()['role'] == 'gestor'
+            assert client.get('/api/admin/users').status_code == 200
 
 
 def test_normal_mode_rejects_reserved_addresses_before_restart(tmp_path):
@@ -111,7 +117,7 @@ def test_normal_mode_rejects_reserved_addresses_before_restart(tmp_path):
     identifier, _ = create_first_manager(path, 'Gestor', email, password)
     with TestClient(create_app(path, demo=False)) as client:
         assert signin(client, email, password).status_code == 200
-        create = {'name': 'Outra conta', 'email': 'GESTOR@demo.local',
+        create = {'name': 'Outra conta', 'email': 'OPERADOR@demo.local',
                   'role': 'operador', 'password': 'senha longa para teste'}
         assert client.post('/api/admin/users', json=create).status_code == 422
         edit = {'name': 'Gestor', 'email': 'operador@demo.local', 'role': 'gestor', 'active': True}
@@ -119,4 +125,61 @@ def test_normal_mode_rejects_reserved_addresses_before_restart(tmp_path):
 
     with TestClient(create_app(path, demo=False)) as client:
         assert signin(client, email, password).status_code == 200
-        assert len(client.get('/api/admin/users').json()) == 1
+        assert len(client.get('/api/admin/users').json()) == 2
+
+
+def test_fixed_manager_recovers_legacy_account_without_losing_records(tmp_path):
+    path = tmp_path / 'legacy-demo.db'
+    initialize(path, demo=True)
+    with TestClient(create_app(path, demo=True)) as client:
+        assert signin(client, 'gestor@demo.local', 'Testegestao1').status_code == 200
+        old_cookie = client.cookies.get('ecogestao_session')
+        records = client.get('/api/records').json()
+    with connect(path) as db:
+        db.execute("UPDATE users SET email='GESTOR@DEMO.LOCAL',active=0,role='consulta',password_hash=? WHERE id=1",
+                   (hash_password('senha antiga de demonstração'),))
+
+    with TestClient(create_app(path, demo=False)) as client:
+        assert client.get('/api/auth/me', headers={'Cookie': f'ecogestao_session={old_cookie}'}).status_code == 401
+        assert signin(client, 'gestor@demo.local', 'senha antiga de demonstração').status_code == 401
+        response = signin(client, 'gestor@demo.local', 'Testegestao1')
+        assert response.status_code == 200 and response.json()['id'] == 1
+        assert client.get('/api/records').json() == records
+        session = client.cookies.get('ecogestao_session')
+        with connect(path) as db:
+            original_hash = db.execute('SELECT password_hash FROM users WHERE id=1').fetchone()[0]
+        initialize(path, demo=False)
+        assert client.get('/api/auth/me').status_code == 200
+        assert client.cookies.get('ecogestao_session') == session
+        with connect(path) as db:
+            assert db.execute('SELECT password_hash FROM users WHERE id=1').fetchone()[0] == original_hash
+
+
+def test_fixed_manager_access_cannot_be_changed_by_account_management(tmp_path):
+    path = tmp_path / 'fixed-guard.db'
+    create_first_manager(path, 'Gestor próprio', 'gestor@exemplo.com', 'senha inicial longa 2026')
+    with TestClient(create_app(path, demo=False)) as client:
+        assert signin(client, 'gestor@demo.local', 'Testegestao1').status_code == 200
+        identifier = client.get('/api/auth/me').json()['id']
+        assert client.post('/api/auth/password', json={
+            'current_password': 'Testegestao1', 'new_password': 'outra senha para teste'}).status_code == 409
+        assert signin(client, 'gestor@exemplo.com', 'senha inicial longa 2026').status_code == 200
+        account = {'name': 'Gestor fixo', 'email': 'gestor@demo.local', 'role': 'gestor', 'active': True}
+        endpoint = f'/api/admin/users/{identifier}'
+        for changes in [{'email': 'outro@exemplo.com'}, {'role': 'consulta'}, {'active': False}]:
+            assert client.put(endpoint, json={**account, **changes}).status_code == 409
+        assert client.post(endpoint+'/password', json={'new_password': 'outra senha para teste'}).status_code == 409
+        assert signin(client, 'gestor@demo.local', 'Testegestao1').status_code == 200
+
+
+def test_fixed_manager_normal_records_keep_their_original_data_label(tmp_path):
+    path = tmp_path / 'normal-records.db'
+    with TestClient(create_app(path, demo=False)) as client:
+        assert signin(client, 'gestor@demo.local', 'Testegestao1').status_code == 200
+        sector = client.post('/api/sectors', json={'name': 'Setor próprio'}).json()
+        assert client.post('/api/records', json={
+            'metric': 'agua', 'date': '2026-01-10', 'quantity': 5, 'sector_id': sector['id']}).status_code == 201
+    with TestClient(create_app(path, demo=False)) as client:
+        response = signin(client, 'gestor@demo.local', 'Testegestao1')
+        assert response.status_code == 200 and response.json()['demo'] is False
+        assert len(client.get('/api/records').json()) == 1

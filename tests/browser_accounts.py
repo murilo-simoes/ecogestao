@@ -75,6 +75,18 @@ with sync_playwright() as playwright:
     checks.append('Gestor desativa conta mantendo seu cadastro')
     page.screenshot(path=str(ROOT.parent / 'documentacao' / 'imagens' / '07_contas.png'), full_page=True)
 
+    page.get_by_role('button', name='Sair').click()
+    page.locator('#email').fill('gestor@demo.local')
+    page.locator('#password').fill('Testegestao1')
+    page.get_by_role('button', name='Entrar').click()
+    expect(page.locator('#app')).to_be_visible()
+    expect(page.get_by_role('button', name='Trocar minha senha')).to_be_hidden()
+    page.get_by_role('button', name='Contas', exact=True).click()
+    fixed = page.locator('tbody tr').filter(has_text='gestor@demo.local')
+    expect(fixed).to_contain_text('Conta fixa de avaliação')
+    expect(fixed.get_by_role('button')).to_have_count(0)
+    checks.append('Gestor fixo entra no modo normal com credencial preservada')
+
     assert not errors, errors
     browser.close()
 (OUT / 'browser_accounts.json').write_text(json.dumps({'passed':len(checks),'checks':checks,'javascript_errors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
